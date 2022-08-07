@@ -48,8 +48,12 @@ def decode_chords(beat_chroma: np.ndarray, beat_bass: np.ndarray) -> pd.DataFram
     ).reshape((MAX_PREV, n_frame, -1))  # -1 for class number
 
     weight = score_weight_from_beat(n_frame).reshape(n_frame, 1)
+    empty_scores = np.full((MAX_PREV, n_frame, 1), 0.2)
     for j in range(MAX_PREV):
-        scores[j, j:] += j * 0.7 + weight[: n_frame - j]
+        w = j * 0.7 + weight[: n_frame - j]
+        scores[j, j:] += w
+        empty_scores[j, j:] += w
+    empty_scores = empty_scores.reshape(MAX_PREV, n_frame)
 
     choices = np.argmax(scores, axis=-1)
     cum_scores = np.full(n_frame, -np.inf)
@@ -59,16 +63,21 @@ def decode_chords(beat_chroma: np.ndarray, beat_bass: np.ndarray) -> pd.DataFram
         for j in range(MAX_PREV):
             if i - j < 0:
                 break
+
             best_choice = choices[j, i]  # [MAX_PREV, n_frame]
+            score = scores[j, i, best_choice]
+            if score < empty_scores[j, i]:
+                score = empty_scores[j, i]
+                best_choice = -1
             pre_score = 0 if i - j == 0 else cum_scores[i - j - 1]
-            cur_score = pre_score + scores[j, i, best_choice]
+            cur_score = pre_score + score
             # 如果累计得分更高
             if cum_scores[i] < cur_score:
                 cum_scores[i] = cur_score
                 final_choices[i] = best_choice
                 start_pos[i] = i - j - 1
-            # if j > 0 and (i - j + 1) % 4 == 0:  # downbeat
-            #     break
+            if j > 0 and (i - j + 1) % 4 == 0:  # downbeat
+                break
 
     result = []
     end = n_frame - 1
@@ -81,7 +90,8 @@ def decode_chords(beat_chroma: np.ndarray, beat_bass: np.ndarray) -> pd.DataFram
         if len(result) > 0 and result[-1][2] == name:
             result[-1][0] = start
         else:
-            result.append([start, end, name, chord_pitches[choice]])
+            pitch = chord_pitches[choice] if choice != -1 else []
+            result.append([start, end, name, pitch])
         end = start - 1
 
     return pd.DataFrame(result[::-1], columns=['start', 'end', 'name', 'pitch'])

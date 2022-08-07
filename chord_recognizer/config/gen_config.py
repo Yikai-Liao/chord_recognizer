@@ -48,7 +48,6 @@ def gen_chord_config():
     NUM_TO_INVERSION = ['1', 'b2', '2', 'b3', '3', '4', 'b5', '5', '#5', '6', 'b7', '7']
     INVERSION_TO_NUM = {inv: i for i, inv in enumerate(NUM_TO_INVERSION)}
     BASS_TEMPLATE = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    EMPTY_TEMPLATE = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
     chord_name = []
     chromas = []
@@ -68,6 +67,7 @@ def gen_chord_config():
                 chromas.append(chroma)
                 basses.append(np.roll(BASS_TEMPLATE, shift=i + delta_scale))
                 inverse.append(True)
+    chord_name.append("N")
     chromas = np.array(chromas, dtype=bool)
     chromas_sum = chromas.sum(axis=1).astype(np.uint8)
     basses = np.array(basses, dtype=bool)
