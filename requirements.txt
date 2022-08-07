@@ -1,2 +1,3 @@
 dataclasses
 numpy~=1.21
+mido
