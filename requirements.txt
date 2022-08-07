@@ -1,0 +1,2 @@
+dataclasses
+numpy~=1.21
