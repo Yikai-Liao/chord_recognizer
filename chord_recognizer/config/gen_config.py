@@ -70,9 +70,10 @@ def gen_chord_config():
     chord_name.append("N")
     chromas = np.array(chromas, dtype=bool)
     chromas_sum = chromas.sum(axis=1).astype(np.uint8)
+    chroma_weight = (chromas.astype(np.float32) - ~chromas) / chromas_sum.reshape(-1, 1)
     basses = np.array(basses, dtype=bool)
     chord_name = np.array(chord_name)
     inverse = np.array(inverse)
     return {'name': chord_name, 'bass': basses,
-            'chroma': chromas, 'chroma_sum': chromas_sum,
+            'chroma': chromas, 'chroma_weight': chroma_weight,
             'score_bias': (-0.1 * chromas_sum - 0.05 * inverse).astype(np.float32)}

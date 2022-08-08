@@ -1,11 +1,15 @@
 import numpy as np
 from .config import CHORD_CONFIG
 from typing import Union, List, Tuple
+from numba import njit
 
-array_like = Union[np.ndarray, List, Tuple]
+ref_chroma_weight = CHORD_CONFIG['chroma_weight']
+ref_bass: np.array = CHORD_CONFIG['bass']
+score_bias: np.array = CHORD_CONFIG['score_bias']
 
 
-def chord_score(chroma: array_like, bass: array_like) -> np.ndarray:
+@njit(fastmath=True)
+def chord_score(chroma: np.ndarray, bass: np.ndarray) -> np.ndarray:
     """
     调用 chord_score_batch 实现对单个frame对特征计算
 
@@ -13,12 +17,14 @@ def chord_score(chroma: array_like, bass: array_like) -> np.ndarray:
    :param bass: shape 为 [12]，数值在 0~1 之间，但是每一个特征向量只有一个非0值，对应核心的 bass
    :return: 返回该在每一个种类上的得分，shape为 [num_classes]，区间为[-inf, inf]
    """
-    chroma = np.asarray(chroma, dtype=np.float32)
-    bass = np.asarray(bass, dtype=np.float32)
-    return chord_score_batch(chroma.reshape(1, 12), bass.reshape(1, 12))[0]
+    score_chroma = np.sum(chroma * ref_chroma_weight, axis=1)
+    score_bass = np.sum((0.5 * bass) * ref_bass, axis=1)
+    score = score_chroma + (score_bass + score_bias)
+    return score
 
 
-def chord_score_batch(chroma: array_like, bass: array_like) -> np.ndarray:
+@njit(cache=True, fastmath=True)
+def chord_score_batch(chroma: np.ndarray, bass: np.ndarray) -> np.ndarray:
     """
     根据 chroma 与 bass 特征，批量计算每一个frame 对每一类和弦的得分。
 
@@ -30,14 +36,9 @@ def chord_score_batch(chroma: array_like, bass: array_like) -> np.ndarray:
     :param bass: shape 为 [batch, 12]，数值在 0~1 之间，但是每一个特征向量只有一个非0值，对应核心的 bass
     :return: 返回每个frame在每一个种类上的得分，shape为 [batch, num_classes]，区间为[-inf, inf]
     """
-    ref_chroma: np.array = CHORD_CONFIG['chroma']
-    ref_chroma_sum: np.array = CHORD_CONFIG['chroma_sum']
-    ref_bass: np.array = CHORD_CONFIG['bass']
-    score_bias: np.array = CHORD_CONFIG['score_bias']
-    chroma = np.asarray(chroma, dtype=np.float32).reshape((-1, 1, 12))
-    bass = np.asarray(bass, dtype=np.float32).reshape((-1, 1, 12))
-
-    score_chroma = (np.sum(chroma * ref_chroma, axis=2) - np.sum(chroma * ~ref_chroma, axis=2)) / ref_chroma_sum
+    chroma = chroma.reshape((-1, 1, 12))
+    bass = bass.reshape((-1, 1, 12))
+    score_chroma = np.sum(chroma * ref_chroma_weight, axis=2)
     score_bass = np.sum((0.5 * bass) * ref_bass, axis=2)
     score = score_chroma + (score_bass + score_bias)
     return score
