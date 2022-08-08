@@ -1,2 +1,2 @@
-from .note_set import Note, NoteSet
-from .sequence import Track, Sequence, GlobalChange
+from .noteSet import Note, NoteSet
+from .sequence import Track, Sequence, QPMChange, TimeSignature, PitchBend, VolumeChange

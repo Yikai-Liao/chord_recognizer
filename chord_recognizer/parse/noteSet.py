@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict, List
-# from ..trdparty import MSF_pb2 as msf
+from . import MSF_pb2 as msf
 
 # 顺序需要与 MSF 中保持一致，后续增加新的 attribute 需要在此处跟进
 NOTE_ATTR_TYPE = ("ONSET_VEL", "OFFSET_VEL", "LEGATO", "PORTAMENTO")
@@ -21,7 +21,7 @@ class Note:
     """
 
     pitch: int
-    start: float  # 时间的单位为一拍，无需考虑tempo
+    start: float
     duration: float
     attribute: Dict = field(default_factory=dict)
 
@@ -40,11 +40,11 @@ class Note:
         """
         return self.attribute.get("ONSET_VEL", 100)
 
-    # def msf_attribute(self) -> List[msf.Note.Attribute]:
-    #     return [
-    #         msf.Note.Attribute(type=NOTE_ATTR_NAME2NUM[name], value=value)
-    #         for name, value in self.attribute.items()
-    #     ]
+    def msf_attribute(self) -> List[msf.Note.Attribute]:
+        return [
+            msf.Note.Attribute(type=NOTE_ATTR_NAME2NUM[name], value=value)
+            for name, value in self.attribute.items()
+        ]
 
 
 @dataclass
@@ -77,5 +77,3 @@ class NoteSet:
         for n in self.note:
             n.pitch += num
         return self
-
-

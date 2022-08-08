@@ -76,7 +76,7 @@ def extract_chord_features(tracks: List[Track], note_precision: float = 0.25) ->
         to_note_arr(
             sorted(track.note, key=lambda note: -note.pitch),
             note_precision
-        ) for track in tracks
+        ) for track in tracks if track.meta.get('is_drum', False) == 'False'
     ]  # 数组按照 note.pitch 排序降序排列
     ends = (track['end'].max() for track in tracks)
     global_end = max(ends)
