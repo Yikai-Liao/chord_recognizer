@@ -177,9 +177,10 @@ class Sequence:
                         )
                         for n in track.note
                     ],
-                    pitchBend=[TrackChange(time=int(change.time * q), value=change.value) for change in
-                               track.pitchBend],
-                    volume=[TrackChange(time=int(change.time * q), value=change.value) for change in track.volume]
+                    pitchBend=[msf.Track.TrackChange(time=int(change.time * q), value=change.value)
+                               for change in track.pitchBend],
+                    volume=[msf.Track.TrackChange(time=int(change.time * q), value=change.value)
+                            for change in track.volume]
                 )
                 for track in self.track
             ]

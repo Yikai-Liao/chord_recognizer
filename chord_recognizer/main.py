@@ -32,4 +32,4 @@ def recognize_chords(file: Union[str, MidiFile, Sequence], note_precision: float
     else:
         raise AssertionError(f"the file argument do not support type: {type(file)}!")
 
-    return decode_chords(*extract_chord_features(s.track, note_precision))
+    return decode_chords(*extract_chord_features(s.track, note_precision), time_signatures=s.timeSignature)

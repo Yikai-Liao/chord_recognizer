@@ -1,28 +1,50 @@
+from typing import List
+
 import numpy as np
 import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 from .score import chord_score
 from .config import CHORD_CONFIG
 from numba import njit
-MAX_PREV = 5
+from .util import TimeSignature
+
+MAX_PREV = 8
 
 
-@njit(cache=True)
-def score_weight_from_beat(n_frame: int):
-    time_index = np.arange(n_frame, dtype=np.int32)
+def downbeat_and_score_weight(n_frame: int, time_signatures: List[TimeSignature]):
+    if len(time_signatures) == 0:  # 默认44拍
+        time_signatures.append(TimeSignature(0, 4, 4))
+    elif time_signatures[0].time != 0:
+        time_signatures[0].time = 0
+
+    ends = [*(s.time for s in time_signatures[1:]), n_frame]
+
     weight = np.zeros(n_frame, dtype=np.float32)
-    weight[time_index % 2 == 0] = 0.2  # even beat
-    weight[time_index % 4 == 2] += 0.15  # half downbeat
-    return weight
+    downbeat = np.zeros(n_frame, dtype=bool)
+    for time_signature, end in zip(time_signatures, ends):
+        start = int(time_signature.time)
+        beats = time_signature.beats
+        relative_index = np.arange(end - start, dtype=np.uint32)
+        if beats % 3 == 0:  # 3 拍子
+            index = relative_index % 3 == 0
+            weight[start: end][~index] = 0.35
+            downbeat[start: end][index] = True
+        elif beats & (beats - 1) == 0:  # 2^n，处理为4 拍子
+            weight[start: end][relative_index % 2 == 0] = 0.2
+            weight[start: end][relative_index % 4 == 2] = 0.15
+            downbeat[start: end][relative_index % 4 == 0] = True
+        else:
+            raise AssertionError(f"time signature: {time_signature} is invalid!")
+
+    return downbeat, weight
 
 
 @njit(cache=True)
-def score_dp(cum_chroma, cum_bass):
+def score_dp(cum_chroma, cum_bass, downbeat, weight):
     """
     使用动态规划解析出最佳对和弦排列
     """
     n_frame = cum_chroma.shape[1]
-    weight = score_weight_from_beat(n_frame)
     cum_scores = np.full(n_frame, -np.inf)
     start_pos = np.zeros(n_frame, dtype=np.int32)
     final_choices = np.zeros(n_frame, dtype=np.int32)
@@ -44,17 +66,22 @@ def score_dp(cum_chroma, cum_bass):
                 cum_scores[i] = cur_score
                 final_choices[i] = best_choice
                 start_pos[i] = i - j - 1
-            if j > 0 and (i - j + 1) % 4 == 0:  # downbeat
+            if j > 0 and downbeat[i - j + 1]:  # downbeat
                 break
     return final_choices, start_pos
 
 
-def decode_chords(beat_chroma: np.ndarray, beat_bass: np.ndarray) -> pd.DataFrame:
+def decode_chords(
+        beat_chroma: np.ndarray, beat_bass: np.ndarray,
+        time_signatures: List[TimeSignature]) -> pd.DataFrame:
     """
     对提取得到的 pitch 与 bass 的数值，进行打分，并使用动态规划解析出最佳对和弦排列
 
+    **sliding window requires np.__version__ >= 1.20**
+
     :param beat_chroma: shape 为 [n_frame, 12]，每一拍的 pitch 特征，由 feature.extrac_chord_feature() 得到
     :param beat_bass: shape 为 [n_frame, 12]，每一拍的 bass 特征，由 feature.extrac_chord_feature() 得到
+    :param time_signatures: 拍号序列，可以为空
     :return: 以 pd.DataFrame 的类型，返回解析出的和弦，时间单位为 1拍
     """
     n_frame = len(beat_bass)
@@ -70,12 +97,12 @@ def decode_chords(beat_chroma: np.ndarray, beat_bass: np.ndarray) -> pd.DataFram
     ])
 
     cum_bass = np.stack([
-        np.sum(
-            sliding_window_view(beat_bass_pad[MAX_PREV - j:], j, axis=0),
-            axis=-1
-        ) for j in range(1, MAX_PREV + 1)
+        np.sum(sliding_window_view(beat_bass_pad[MAX_PREV - j:], j, axis=0), axis=-1)
+        for j in range(1, MAX_PREV + 1)
     ])
-    final_choices, start_pos = score_dp(cum_chroma, cum_bass)
+
+    downbeat, weight = downbeat_and_score_weight(n_frame, time_signatures)
+    final_choices, start_pos = score_dp(cum_chroma, cum_bass, downbeat, weight)
     result = []
     end = n_frame - 1
     chord_names = CHORD_CONFIG['name']
