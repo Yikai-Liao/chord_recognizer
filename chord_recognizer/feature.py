@@ -1,7 +1,7 @@
 from typing import List, Optional, Tuple
 import numpy as np
 
-from .parse import Note, Track
+from .util import Note, Track
 
 note_type = np.dtype([
     ('pitch', np.uint8),

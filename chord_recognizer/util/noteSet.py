@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict, List
-from . import MSF_pb2 as msf
+from ..trdparty import MSF_pb2 as msf
 
 # 顺序需要与 MSF 中保持一致，后续增加新的 attribute 需要在此处跟进
 NOTE_ATTR_TYPE = ("ONSET_VEL", "OFFSET_VEL", "LEGATO", "PORTAMENTO")

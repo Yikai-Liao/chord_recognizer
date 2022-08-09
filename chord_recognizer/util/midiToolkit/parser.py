@@ -1,7 +1,5 @@
 import collections
 import functools
-from typing import List
-
 import mido
 import numpy as np
 
@@ -711,52 +709,3 @@ def _get_tick_to_time_mapping(ticks_per_beat, max_tick, tempo_changes):
         tick_to_time[start_tick:end_tick + 1] = (acc_time + seconds_per_tick * ticks)
         acc_time = tick_to_time[end_tick]
     return tick_to_time
-
-
-def notes2pianoroll(
-        notes: List[Note],
-        resample_factor=1.0,
-        resample_method=round,
-        max_tick=None,
-        keep_note=True):
-    # pass by value
-    # note_stream = deepcopy(notes)
-    # sort by end time
-    note_stream = sorted(notes, key=lambda x: x.end)
-
-    # set max tick (notes 序列的结尾长度)
-    if max_tick is None:
-        max_tick = 0 if len(note_stream) == 0 else note_stream[-1].end
-
-    # resampling
-    if resample_factor != 1.0:
-        max_tick = int(resample_method(max_tick * resample_factor))
-        for note in note_stream:
-            note.start = int(resample_method(note.start * resample_factor))
-            note.end = int(resample_method(note.end * resample_factor))
-
-    # create pianoroll
-    time_coo = []
-    pitch_coo = []
-
-    for note in note_stream:
-        # discard notes having no velocity
-        if note.velocity == 0:
-            continue
-
-        # duration
-        duration = note.end - note.start
-
-        # keep notes with zero length (set to 1)
-        if keep_note and (duration == 0):
-            duration = 1
-            note.end += 1
-
-        # set time
-        time_coo.extend(np.arange(note.start, note.end))
-
-        # set pitch
-        pitch_coo.extend([note.pitch] * duration)
-
-    # output
-    return pianoroll

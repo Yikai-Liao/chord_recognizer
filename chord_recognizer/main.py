@@ -1,8 +1,8 @@
 import pandas as pd
 from .feature import extract_chord_features
 from .decode import decode_chords
-from .parse.midiToolkit import MidiFile
-from .parse import Sequence
+from .util.midiToolkit import MidiFile
+from .util import Sequence
 from typing import Union
 from os.path import splitext, isfile
 

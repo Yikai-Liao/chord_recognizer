@@ -2,26 +2,16 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Union, BinaryIO
 from collections import defaultdict, OrderedDict
 from .noteSet import Note, NoteSet, NOTE_ATTR_TYPE
-from . import MSF_pb2 as msf
+from ..trdparty import MSF_pb2 as msf
 from . import midiToolkit
 
+
 # 读取枚举类型对应的数值
-_BEATS = msf.Sequence.GlobalChange.Type.BEATS
-_BEATS_TYPE = msf.Sequence.GlobalChange.Type.BEATS_TYPE
-_PITCH_BEND = msf.Track.TrackChange.Type.PITCH_BEND
-_VOLUME = msf.Track.TrackChange.Type.VOLUME
-
 
 @dataclass
-class PitchBend:
+class TrackChange:
     time: float
-    pitch: int
-
-
-@dataclass
-class VolumeChange:
-    time: float
-    volume: int
+    value: int
 
 
 @dataclass
@@ -38,8 +28,8 @@ class Track:
     instrumentID: int = 1
     meta: Dict[str, str] = field(default_factory=lambda: defaultdict(str))
     note: List[Note] = field(default_factory=list)
-    pitch_bends: List[PitchBend] = field(default_factory=list)
-    volume_changes: List[VolumeChange] = field(default_factory=list)
+    pitchBend: List[TrackChange] = field(default_factory=list)
+    volume: List[TrackChange] = field(default_factory=list)
 
     def __post_init__(self):
         # 确保 attribute 为 DefaultDict
@@ -70,16 +60,19 @@ class Track:
 
 
 @dataclass
-class QPMChange:
+class GlobalChange:
     time: float
-    qpm: int
+    value: int
 
 
 @dataclass
 class TimeSignature:
     time: float
-    numerator: int = 4
-    denominator: int = 4
+    beats: int = 4
+    beatType: int = 4
+
+    def __post_init__(self):
+        assert self.beatType & (self.beatType - 1) == 0, f"beatType should be 2^n, but not {self.beatType}!"
 
 
 @dataclass
@@ -92,8 +85,8 @@ class Sequence:
     """
     meta: Dict[str, str] = field(default_factory=lambda: defaultdict(str))
     track: List[Track] = field(default_factory=list)
-    qpm_changes: List[QPMChange] = field(default_factory=list)
-    time_signature_changes: List[TimeSignature] = field(default_factory=list)
+    timeSignature: List[TimeSignature] = field(default_factory=list)
+    qpm: List[GlobalChange] = field(default_factory=list)
 
     def __post_init__(self):
         # 确保 attribute 为 DefaultDict
@@ -123,25 +116,11 @@ class Sequence:
             raise AssertionError(f"type: {type(file)} is not supported when reading from MSF to Sequence")
 
         q = sequence.quantization
-
-        # 从 GlobalChange 中读取拍号
-        time_signatures = OrderedDict()
-        beat_type = {_BEATS, _BEATS_TYPE}
-        for change in filter(lambda x: x.type in beat_type, sorted(sequence.globalChange, key=lambda x: x.time)):
-            time_signature = time_signatures.get(change.time, TimeSignature(change.time / q))
-            if change.type == _BEATS:
-                time_signature.numerator = int(change.value)
-            else:  # _BEATS_TYPE
-                time_signature.denominator = int(change.value)
-            time_signatures[change.time] = time_signature
-
         return Sequence(
             meta={m.name: m.value for m in sequence.meta},
-            qpm_changes=[
-                QPMChange(qpm=change.value, time=change.time / q)
-                for change in sequence.globalChange if change.type == msf.Sequence.GlobalChange.Type.QPM
-            ],
-            time_signature_changes=list(time_signatures.values()),
+            qpm=[GlobalChange(time=change.time / q, value=change.value) for change in sequence.qpm],
+            timeSignature=[
+                TimeSignature(change.time / q, change.beats, change.beatType) for change in sequence.timeSignature],
             track=[
                 Track(
                     instrumentID=int(t.instrumentID),
@@ -155,14 +134,8 @@ class Sequence:
                         )
                         for n in t.note
                     ],
-                    pitch_bends=[
-                        PitchBend(change.time / q, change.value)
-                        for change in t.trackChange if change.type == _PITCH_BEND
-                    ],
-                    volume_changes=[
-                        VolumeChange(change.time / q, change.value)
-                        for change in t.trackChange if change.type == _VOLUME
-                    ]
+                    pitchBend=[TrackChange(change.time / q, change.value) for change in t.pitchBend],
+                    volume=[TrackChange(change.time / q, change.value) for change in t.volume]
                 )
                 for t in sequence.track
             ]
@@ -181,38 +154,18 @@ class Sequence:
         """
         assert isinstance(quantization, int) and quantization > 0, f"quantization: {quantization} is invalid!"
         q = quantization
-        # 整合 globalChange
-        globalChange = [
-            msf.Sequence.GlobalChange(
-                type=msf.Sequence.GlobalChange.Type.QPM, time=int(qpm.time * q), value=qpm.qpm)
-            for qpm in self.qpm_changes
-        ]
-        for time_signature in self.time_signature_changes:
-            time = int(time_signature.time * q)
-            globalChange.extend([
-                msf.Sequence.GlobalChange(type=_BEATS, time=time, value=time_signature.numerator),
-                msf.Sequence.GlobalChange(type=_BEATS_TYPE, time=time, value=time_signature.denominator)
-            ])
-        # 整合 trackChange
-        trackChanges = []
-        for track in self.track:
-            trackChange = [
-                msf.Track.TrackChange(type=_PITCH_BEND, time=int(change.time * q), value=change.pitch)
-                for change in track.pitch_bends
-            ]
-            trackChange.extend([
-                msf.Track.TrackChange(type=_VOLUME, time=int(change.time * q), value=change.volume)
-                for change in track.volume_changes
-            ])
-            trackChanges.append(sorted(trackChange, key=lambda change: change.time))
 
-        sequence = msf.Sequence(
+        return msf.Sequence(
             meta=[
                 msf.Sequence.Meta(name=name, value=value)
                 for name, value in self.meta.items()
             ],
             quantization=q,
-            globalChange=sorted(globalChange, key=lambda x: x.time),
+            qpm=[msf.Sequence.GlobalChange(time=int(change.time * q), value=change.value) for change in self.qpm],
+            timeSignature=[
+                msf.Sequence.TimeSignature(time=int(change.time * q), beats=change.beats, beatType=change.beatType)
+                for change in self.timeSignature
+            ],
             track=[
                 msf.Track(
                     instrumentID=int(track.instrumentID),
@@ -224,12 +177,13 @@ class Sequence:
                         )
                         for n in track.note
                     ],
-                    trackChange=trackChange
+                    pitchBend=[TrackChange(time=int(change.time * q), value=change.value) for change in
+                               track.pitchBend],
+                    volume=[TrackChange(time=int(change.time * q), value=change.value) for change in track.volume]
                 )
-                for track, trackChange in zip(self.track, trackChanges)
+                for track in self.track
             ]
         )
-        return sequence
 
     @classmethod
     def from_midi(cls, file: Union[str, BinaryIO, midiToolkit.MidiFile]):
@@ -249,8 +203,8 @@ class Sequence:
             raise AssertionError(f"type: {type(file)} is not supported when reading from MIDI to Sequence")
         q = midi.ticks_per_beat
         return Sequence(
-            qpm_changes=[QPMChange(qpm=int(change.tempo), time=change.time / q) for change in midi.tempo_changes],
-            time_signature_changes=[
+            qpm=[GlobalChange(time=change.time / q, value=int(change.tempo)) for change in midi.tempo_changes],
+            timeSignature=[
                 TimeSignature(change.time / q, change.numerator, change.denominator)
                 for change in midi.time_signature_changes
             ],
@@ -268,8 +222,8 @@ class Sequence:
                         for note in instr.notes
                     ],
                     # 忽略 midi 中的 control change 信息，因为没有被包含在 msf 中
-                    pitch_bends=[
-                        PitchBend(change.time / q, change.pitch)
+                    pitchBend=[
+                        TrackChange(change.time / q, change.pitch)
                         for change in instr.pitch_bends
                     ]
                 )
@@ -293,19 +247,19 @@ class Sequence:
         q = quantization
         midi = midiToolkit.MidiFile(ticks_per_beat=quantization)
         midi.tempo_changes = [
-            midiToolkit.TempoChange(tempo=change.qpm, time=int(change.time * q))
-            for change in self.qpm_changes
+            midiToolkit.TempoChange(tempo=change.value, time=int(change.time * q))
+            for change in self.qpm
         ]
         midi.time_signature_changes = [
-            midiToolkit.TimeSignature(change.numerator, change.denominator, int(change.time * q))
-            for change in self.time_signature_changes
+            midiToolkit.TimeSignature(change.beats, change.beatType, int(change.time * q))
+            for change in self.timeSignature
         ]
 
         for track in self.track:
             instr = midiToolkit.Instrument(
                 program=int(track.instrumentID) if track.instrumentID < 127 else 0,  # 将溢出值归 0
                 name=track.meta['name'],
-                is_drum=bool(track.meta['is_drum'])
+                is_drum=track.meta['is_drum'] == "True"
             )
             instr.notes = [
                 midiToolkit.Note(
@@ -317,8 +271,8 @@ class Sequence:
                 for note in track.note
             ]
             instr.pitch_bends = [
-                midiToolkit.PitchBend(pitch=change.pitch, time=int(change.time * q))
-                for change in track.pitch_bends
+                midiToolkit.PitchBend(pitch=change.value, time=int(change.time * q))
+                for change in track.pitchBend
             ]
             midi.instruments.append(instr)
         return midi
