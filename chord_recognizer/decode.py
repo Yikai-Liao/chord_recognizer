@@ -17,7 +17,7 @@ def downbeat_and_score_weight(n_frame: int, time_signatures: List[TimeSignature]
     elif time_signatures[0].time != 0:
         time_signatures[0].time = 0
 
-    ends = [*(s.time for s in time_signatures[1:]), n_frame]
+    ends = [*(int(s.time) for s in time_signatures[1:]), n_frame]
 
     weight = np.zeros(n_frame, dtype=np.float32)
     downbeat = np.zeros(n_frame, dtype=bool)
